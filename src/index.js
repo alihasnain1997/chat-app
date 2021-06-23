@@ -2,97 +2,72 @@ const path = require('path')
 const http = require('http')
 const express = require('express')
 const socketio = require('socket.io')
-var Filter = require('bad-words')
-const { generateMsg, generateLocationMsg } = require('./utils/messages')
+const Filter = require('bad-words')
+const { generateMessage, generateLocationMessage } = require('./utils/messages')
 const { addUser, removeUser, getUser, getUsersInRoom } = require('./utils/users')
-
-
 
 const app = express()
 const server = http.createServer(app)
-const filter = new Filter();
-
 const io = socketio(server)
 
 const port = process.env.PORT || 3000
-
 const publicDirectoryPath = path.join(__dirname, '../public')
 
-app.use(express.static(publicDirectoryPath));
+app.use(express.static(publicDirectoryPath))
 
-let count = 0;
-
-//start connection
 io.on('connection', (socket) => {
-
-    // //emit message to the connected client
-    // socket.emit('message', generateMsg('Welcome!'))
-
-    // //emit message to the all connected clients except the cient who initated this
-    // socket.broadcast.emit('message', generateMsg('A new use has joined the chat!'))
+    console.log('New WebSocket connection')
 
     socket.on('join', (options, callback) => {
+        const { error, user } = addUser({ id: socket.id, ...options })
 
-        const { error, user } = addUser({
-            id: socket.id,
-            ...options
-        })
         if (error) {
-
             return callback(error)
         }
 
         socket.join(user.room)
 
-        //emit message to the connected client
-        socket.emit('message', generateMsg(`Welcome ${user.userName}`))
-
-        //emit message to the all connected clients except the cient who initated this
-        socket.broadcast.to(user.room).emit('message', generateMsg(`${user.userName} has joined the chat!`))
+        socket.emit('message', generateMessage('Admin', 'Welcome!'))
+        socket.broadcast.to(user.room).emit('message', generateMessage('Admin', `${user.username} has joined!`))
+        io.to(user.room).emit('roomData', {
+            room: user.room,
+            users: getUsersInRoom(user.room)
+        })
 
         callback()
     })
 
-    //listen for specific event
-    socket.on('sendMessage', (msg, callback) => {
+    socket.on('sendMessage', (message, callback) => {
+        const user = getUser(socket.id)
+        const filter = new Filter()
 
-        if (filter.isProfane(msg)) {
-            return callback('Profanity is not allowed')
+        if (filter.isProfane(message)) {
+            return callback('Profanity is not allowed!')
         }
-        else {
-            io.to('test').emit('message', generateMsg(msg))
-            callback()
-        }
-        //emit message to all clients
 
-
+        io.to(user.room).emit('message', generateMessage(user.username, message))
+        callback()
     })
 
-    socket.on('sendLocation', (location, callback) => {
-        // console.log("inside socket of server reciever",location)
-        // socket.broadcast.emit('sendLocation', location)
-        io.emit('locationMessage', generateLocationMsg(`https://google.com/maps?q=${location.latitude},${location.longitude}`))
-
-        callback('shared')
-
-
+    socket.on('sendLocation', (coords, callback) => {
+        const user = getUser(socket.id)
+        io.to(user.room).emit('locationMessage', generateLocationMessage(user.username, `https://google.com/maps?q=${coords.latitude},${coords.longitude}`))
+        callback()
     })
 
-
-    //listen for client disconnected
     socket.on('disconnect', () => {
         const user = removeUser(socket.id)
-        if (user) {
-            io.to(user.room).emit('message', generateMsg(`${user.userName} has left!`))
-        } else {
 
+        if (user) {
+            io.to(user.room).emit('message', generateMessage('Admin', `${user.username} has left!`))
+            io.to(user.room).emit('roomData', {
+                room: user.room,
+                users: getUsersInRoom(user.room)
+            })
         }
     })
-
 })
 
-
-
 server.listen(port, () => {
-    console.log(`server started at port ${port}`)
+    console.log(`Server is up on port ${port}!`)
 })

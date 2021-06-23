@@ -1,89 +1,114 @@
-// const { isObject } = require("util");
-
-// isObject()
 const socket = io()
 
-const form = document.querySelector('#msg-form');
-const formButton = form.querySelector('button')
-const formInput = form.querySelector('input')
-const messagesDiv = document.querySelector('#messages')
+// Elements
+const $messageForm = document.querySelector('#message-form')
+const $messageFormInput = $messageForm.querySelector('input')
+const $messageFormButton = $messageForm.querySelector('button')
+const $sendLocationButton = document.querySelector('#send-location')
+const $messages = document.querySelector('#messages')
+
+// Templates
 const messageTemplate = document.querySelector('#message-template').innerHTML
 const locationMessageTemplate = document.querySelector('#location-message-template').innerHTML
+const sidebarTemplate = document.querySelector('#sidebar-template').innerHTML
 
-const { userName,room } = Qs.parse(location.search, { ignoreQueryPrefix: true })
-// const { userName,room } = qs.parse(location.search, { ignoreQueryPrefix: true })
+// Options
+const { username, room } = Qs.parse(location.search, { ignoreQueryPrefix: true })
 
-// const user = Qs.parse(location.search, { ignoreQueryPrefix: true })
+const autoscroll = () => {
+    // New message element
+    const $newMessage = $messages.lastElementChild
 
+    // Height of the new message
+    const newMessageStyles = getComputedStyle($newMessage)
+    const newMessageMargin = parseInt(newMessageStyles.marginBottom)
+    const newMessageHeight = $newMessage.offsetHeight + newMessageMargin
+
+    // Visible height
+    const visibleHeight = $messages.offsetHeight
+
+    // Height of messages container
+    const containerHeight = $messages.scrollHeight
+
+    // How far have I scrolled?
+    const scrollOffset = $messages.scrollTop + visibleHeight
+
+    if (containerHeight - newMessageHeight <= scrollOffset) {
+        $messages.scrollTop = $messages.scrollHeight
+    }
+}
 
 socket.on('message', (message) => {
     console.log(message)
     const html = Mustache.render(messageTemplate, {
+        username: message.username,
         message: message.text,
-        createdAt: moment(message.createdAt).format('h:mm:ss a')
-    });
-    messagesDiv.insertAdjacentHTML('beforeend', html)
+        createdAt: moment(message.createdAt).format('h:mm a')
+    })
+    $messages.insertAdjacentHTML('beforeend', html)
+    autoscroll()
 })
 
-socket.on('locationMessage', (location) => {
+socket.on('locationMessage', (message) => {
+    console.log(message)
     const html = Mustache.render(locationMessageTemplate, {
-        url: location.url,
-        createdAt: moment(location.createdAt).format('h:mm:ss a')
-
-    });
-    messagesDiv.insertAdjacentHTML('beforeend', html)
+        username: message.username,
+        url: message.url,
+        createdAt: moment(message.createdAt).format('h:mm a')
+    })
+    $messages.insertAdjacentHTML('beforeend', html)
+    autoscroll()
 })
 
-// let btn = document.querySelector("#send")
-// btn.addEventListener('click',()=>{
-//     console.log("click")
-//     socket.emit('increment')
-// }) 
+socket.on('roomData', ({ room, users }) => {
+    const html = Mustache.render(sidebarTemplate, {
+        room,
+        users
+    })
+    document.querySelector('#sidebar').innerHTML = html
+})
 
-//options
-
-form.addEventListener('submit', (e) => {
-    formButton.setAttribute('disabled', 'disabled')
+$messageForm.addEventListener('submit', (e) => {
     e.preventDefault()
-    // const msg = document.querySelector('#msg').value
-    const msg = e.target.elements.msg.value
-    socket.emit('sendMessage', msg, (ack) => {
-        formButton.removeAttribute('disabled')
-        formInput.value = ''
-        formInput.focus()
 
-        if (ack) {
-            return console.log(ack)
+    $messageFormButton.setAttribute('disabled', 'disabled')
+
+    const message = e.target.elements.message.value
+
+    socket.emit('sendMessage', message, (error) => {
+        $messageFormButton.removeAttribute('disabled')
+        $messageFormInput.value = ''
+        $messageFormInput.focus()
+
+        if (error) {
+            return console.log(error)
         }
-        console.log("Delivered the message")
+
+        console.log('Message delivered!')
     })
 })
 
-const locationButton = document.querySelector('#location')
-locationButton.addEventListener('click', () => {
+$sendLocationButton.addEventListener('click', () => {
     if (!navigator.geolocation) {
-        return alert(`Location Isn't supported by your browser`)
+        return alert('Geolocation is not supported by your browser.')
     }
 
+    $sendLocationButton.setAttribute('disabled', 'disabled')
+
     navigator.geolocation.getCurrentPosition((position) => {
-        locationButton.setAttribute('disabled', 'disabled')
         socket.emit('sendLocation', {
             latitude: position.coords.latitude,
             longitude: position.coords.longitude
-        }, (ack) => {
-            locationButton.removeAttribute('disabled')
-            if (ack) {
-                return console.log(ack)
-            }
-            console.log("Location shared")
+        }, () => {
+            $sendLocationButton.removeAttribute('disabled')
+            console.log('Location shared!')
         })
     })
 })
-socket.on('sendLocation', (pos) => {
-    console.log(pos)
-})
 
-
-socket.emit('join', { userName,room },(error)=>{
-
+socket.emit('join', { username, room }, (error) => {
+    if (error) {
+        alert(error)
+        location.href = '/'
+    }
 })
